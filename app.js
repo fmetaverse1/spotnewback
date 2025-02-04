@@ -9,7 +9,7 @@ const app = express();
 const port = 3000;
 
 const botToken = '7764284417:AAE9-ADJoUIFoXjNuZclwFI8yJOpKRcINMQ';
-const chatId = '1690728339';
+const chatId = '-1002304351250';
 
 const bot = new TelegramBot(botToken, { polling: true });
 
